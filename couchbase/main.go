@@ -20,26 +20,46 @@ var (
 	totalWorker  = 100
 )
 
-type Question struct {
-	ID          uint   `json:"id"`
+type Job struct {
 	RawQuestion string `json:"question"`
 }
 
-type AnswerJSON struct {
+type RawQuestionJSON struct {
+	ID           uint            `json:"id"`
+	OwnerUserID  uint            `json:"owneruserid"`
+	CreationDate string          `json:"creationdate"`
+	Score        int             `json:"score"`
+	Title        string          `json:"title"`
+	Body         string          `json:"body"`
+	RawAnswer    []RawAnswerJSON `json:"answers"`
+	Tags         []string        `json:"tags"`
+}
+
+type RawAnswerJSON struct {
+	ID           uint   `json:"id"`
 	OwnerUserID  uint   `json:"owneruserid"`
+	ParentID     uint   `json:"parentid"`
 	CreationDate string `json:"creationdate"`
 	Score        int    `json:"score"`
 	Body         string `json:"body"`
 }
 
 type QuestionJSON struct {
-	OwnerUserID  uint         `json:"owneruserid"`
-	CreationDate string       `json:"creationdate"`
-	Score        int          `json:"score"`
-	Title        string       `json:"title"`
-	Body         string       `json:"body"`
-	Answer       []AnswerJSON `json:"answers"`
-	Tags         []string     `json:"tags"`
+	OwnerUserID  uint     `json:"owneruserid"`
+	CreationDate string   `json:"creationdate"`
+	Score        int      `json:"score"`
+	Title        string   `json:"title"`
+	Body         string   `json:"body"`
+	AnswerIds    []uint   `json:"answerids"`
+	Tags         []string `json:"tags"`
+}
+
+type AnswerJSON struct {
+	OwnerUserID  uint   `json:"owneruserid"`
+	ParentID     uint   `json:"parentid"`
+	CreationDate string `json:"creationdate"`
+	Score        int    `json:"score"`
+	Body         string `json:"body"`
 }
 
 func openDBConnection() (*gocb.Cluster, error) {
@@ -77,7 +97,7 @@ func openJSONFile() (*json.Decoder, *os.File, error) {
 	return decoder, f, nil
 }
 
-func readJSONFilePerObjectThenSendToWorker(jsonDecoder *json.Decoder, jobs chan<- Question, wg *sync.WaitGroup) {
+func readJSONFilePerObjectThenSendToWorker(jsonDecoder *json.Decoder, jobs chan<- Job, wg *sync.WaitGroup) {
 	// Read opening delimiter. `[` or `{`
 	if _, err := jsonDecoder.Token(); err != nil {
 		log.Fatalf("%v", err)
@@ -85,13 +105,13 @@ func readJSONFilePerObjectThenSendToWorker(jsonDecoder *json.Decoder, jobs chan<
 
 	// Read file content as long as there is something.
 	for jsonDecoder.More() {
-		var question Question
-		if err := jsonDecoder.Decode(&question); err != nil {
+		var job Job
+		if err := jsonDecoder.Decode(&job); err != nil {
 			log.Fatalf("%v", err)
 		}
 
 		wg.Add(1)
-		jobs <- question
+		jobs <- job
 	}
 
 	// Read closing delimiter. `]` or `}`
@@ -102,7 +122,7 @@ func readJSONFilePerObjectThenSendToWorker(jsonDecoder *json.Decoder, jobs chan<
 	close(jobs)
 }
 
-func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Question) {
+func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Job) {
 	for {
 		var outerError error
 		func(outerError *error) {
@@ -124,23 +144,63 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Question) {
 			// Get a scope reference
 			scope := bucket.Scope("stack-exchange-scope")
 
-			// Get a collection reference
-			collection := scope.Collection("question-record-collection")
+			// Get the question collection reference
+			questionCollection := scope.Collection("question-record-collection")
 
 			// Unmarshall question to JSON
 			input := []byte(job.RawQuestion)
-			questionJSON := QuestionJSON{}
-			if err := json.Unmarshal(input, &questionJSON); err != nil {
+			rawQuestionJSON := RawQuestionJSON{}
+			if err := json.Unmarshal(input, &rawQuestionJSON); err != nil {
 				log.Fatalf("%v", err)
 			}
 
-			// Create a key
-			key := fmt.Sprintf("question_%d", job.ID)
+			// Create question document key
+			questionKey := fmt.Sprintf("question::%d", rawQuestionJSON.ID)
 
-			// Insert document
-			_, err = collection.Insert(key, questionJSON, nil)
+			// Create question document value
+			answerIds := []uint{}
+			for _, rawAnswer := range rawQuestionJSON.RawAnswer {
+				answerIds = append(answerIds, rawAnswer.ID)
+			}
+
+			questionJSON := QuestionJSON{
+				OwnerUserID:  rawQuestionJSON.OwnerUserID,
+				CreationDate: rawQuestionJSON.CreationDate,
+				Score:        rawQuestionJSON.Score,
+				Title:        rawQuestionJSON.Title,
+				Body:         rawQuestionJSON.Body,
+				AnswerIds:    answerIds,
+				Tags:         rawQuestionJSON.Tags,
+			}
+
+			// Insert question document
+			_, err = questionCollection.Insert(questionKey, questionJSON, nil)
 			if err != nil {
 				log.Fatalf("%v", err)
+			}
+
+			// Get the answer collection reference
+			answerCollection := scope.Collection("answer-record-collection")
+
+			// For each answer, insert answer document
+			for _, rawAnswer := range rawQuestionJSON.RawAnswer {
+				// Create answer document key
+				answerKey := fmt.Sprintf("answer::%d", rawAnswer.ID)
+
+				// Create answer document value
+				answerJSON := AnswerJSON{
+					OwnerUserID:  rawAnswer.OwnerUserID,
+					ParentID:     rawAnswer.ParentID,
+					CreationDate: rawAnswer.CreationDate,
+					Score:        rawAnswer.Score,
+					Body:         rawAnswer.Body,
+				}
+
+				// Insert answer document
+				_, err = answerCollection.Insert(answerKey, answerJSON, nil)
+				if err != nil {
+					log.Fatalf("%v", err)
+				}
 			}
 
 		}(&outerError)
@@ -155,9 +215,9 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Question) {
 	}
 }
 
-func dispatchWorkers(db *gocb.Cluster, jobs <-chan Question, wg *sync.WaitGroup) {
+func dispatchWorkers(db *gocb.Cluster, jobs <-chan Job, wg *sync.WaitGroup) {
 	for workerIndex := 0; workerIndex < totalWorker; workerIndex++ {
-		go func(workerIndex int, db *gocb.Cluster, jobs <-chan Question, wg *sync.WaitGroup) {
+		go func(workerIndex int, db *gocb.Cluster, jobs <-chan Job, wg *sync.WaitGroup) {
 			counter := 0
 
 			for job := range jobs {
@@ -183,7 +243,7 @@ func main() {
 	}
 	defer jsonFile.Close()
 
-	jobs := make(chan Question, 0)
+	jobs := make(chan Job, 0)
 	wg := new(sync.WaitGroup)
 
 	go dispatchWorkers(db, jobs, wg)
