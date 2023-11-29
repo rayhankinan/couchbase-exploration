@@ -4,7 +4,7 @@ migrate-sql:
 	psql "stack-exchange" < $(PWD)/sql/schema.sql
 
 seed-sql:
-	go run ./sql/main.go
+	go run ./postgres/main.go
 
 seed-no-sql:
-	go run ./no-sql/main.go
+	go run ./couchbase/main.go

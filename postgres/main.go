@@ -6,9 +6,9 @@ import (
 	"math"
 	"time"
 
-	"nosql-script-seeding/sql/answer"
-	"nosql-script-seeding/sql/question"
-	"nosql-script-seeding/sql/tag"
+	"nosql-script-seeding/postgres/answer"
+	"nosql-script-seeding/postgres/question"
+	"nosql-script-seeding/postgres/tag"
 )
 
 func main() {
