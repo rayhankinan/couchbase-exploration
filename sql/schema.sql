@@ -1,0 +1,27 @@
+CREATE TABLE Questions (
+    Id BIGINT NOT NULL,
+    OwnerUserId BIGINT,
+    CreationDate TIMESTAMP NOT NULL,
+    Score INT NOT NULL,
+    Title VARCHAR(255) NOT NULL,
+    Body TEXT NOT NULL,
+    PRIMARY KEY (Id)
+);
+
+CREATE TABLE Answers (
+    Id BIGINT NOT NULL,
+    OwnerUserId BIGINT,
+    ParentId BIGINT,
+    CreationDate TIMESTAMP NOT NULL,
+    Score INT NOT NULL,
+    Body TEXT NOT NULL,
+    PRIMARY KEY (Id),
+    FOREIGN KEY (ParentId) REFERENCES Questions(Id) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE Tags (
+    Id BIGINT NOT NULL,
+    Tag VARCHAR(255) NOT NULL,
+    PRIMARY KEY (Id, Tag),
+    FOREIGN KEY (Id) REFERENCES Questions(Id) ON DELETE CASCADE ON UPDATE CASCADE
+);
