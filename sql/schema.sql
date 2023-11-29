@@ -1,17 +1,17 @@
 CREATE TABLE Questions (
-    Id BIGINT NOT NULL,
-    OwnerUserId BIGINT,
+    Id SERIAL,
+    OwnerUserId INTEGER,
     CreationDate TIMESTAMP NOT NULL,
-    Score INT NOT NULL,
+    Score BIGINT NOT NULL,
     Title VARCHAR(255) NOT NULL,
     Body TEXT NOT NULL,
     PRIMARY KEY (Id)
 );
 
 CREATE TABLE Answers (
-    Id BIGINT NOT NULL,
-    OwnerUserId BIGINT,
-    ParentId BIGINT,
+    Id SERIAL,
+    OwnerUserId INTEGER,
+    ParentId INTEGER NOT NULL,
     CreationDate TIMESTAMP NOT NULL,
     Score INT NOT NULL,
     Body TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE Answers (
 );
 
 CREATE TABLE Tags (
-    Id BIGINT NOT NULL,
+    Id INTEGER NOT NULL,
     Tag VARCHAR(255) NOT NULL,
     PRIMARY KEY (Id, Tag),
     FOREIGN KEY (Id) REFERENCES Questions(Id) ON DELETE CASCADE ON UPDATE CASCADE
