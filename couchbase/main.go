@@ -25,6 +25,23 @@ type Question struct {
 	RawQuestion string `json:"question"`
 }
 
+type AnswerJSON struct {
+	OwnerUserID  uint   `json:"owneruserid"`
+	CreationDate string `json:"creationdate"`
+	Score        int    `json:"score"`
+	Body         string `json:"body"`
+}
+
+type QuestionJSON struct {
+	OwnerUserID  uint         `json:"owneruserid"`
+	CreationDate string       `json:"creationdate"`
+	Score        int          `json:"score"`
+	Title        string       `json:"title"`
+	Body         string       `json:"body"`
+	Answer       []AnswerJSON `json:"answers"`
+	Tags         []string     `json:"tags"`
+}
+
 func openDBConnection() (*gocb.Cluster, error) {
 	log.Println("=> open db connection")
 
@@ -112,7 +129,7 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Question) {
 
 			// Unmarshall question to JSON
 			input := []byte(job.RawQuestion)
-			var questionJSON interface{}
+			questionJSON := QuestionJSON{}
 			if err := json.Unmarshal(input, &questionJSON); err != nil {
 				log.Fatalf("%v", err)
 			}
