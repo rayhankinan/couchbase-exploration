@@ -45,6 +45,7 @@ type RawAnswerJSON struct {
 }
 
 type QuestionJSON struct {
+	ID           uint         `json:"id"`
 	OwnerUserID  uint         `json:"owneruserid"`
 	CreationDate string       `json:"creationdate"`
 	Score        int          `json:"score"`
@@ -55,6 +56,7 @@ type QuestionJSON struct {
 }
 
 type AnswerJSON struct {
+	ID           uint   `json:"id"`
 	OwnerUserID  uint   `json:"owneruserid"`
 	CreationDate string `json:"creationdate"`
 	Score        int    `json:"score"`
@@ -173,6 +175,7 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Job) {
 				_, err = bodyCollection.Insert(bodyKey, body, nil)
 
 				answer := AnswerJSON{
+					ID:           rawAnswerJSON.ID,
 					OwnerUserID:  rawAnswerJSON.OwnerUserID,
 					CreationDate: rawAnswerJSON.CreationDate,
 					Score:        rawAnswerJSON.Score,
@@ -195,6 +198,7 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Job) {
 
 			// Create question document
 			question := QuestionJSON{
+				ID:           rawQuestionJSON.ID,
 				OwnerUserID:  rawQuestionJSON.OwnerUserID,
 				CreationDate: rawQuestionJSON.CreationDate,
 				Score:        rawQuestionJSON.Score,
