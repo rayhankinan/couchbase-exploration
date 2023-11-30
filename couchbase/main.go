@@ -45,21 +45,24 @@ type RawAnswerJSON struct {
 }
 
 type QuestionJSON struct {
-	OwnerUserID  uint     `json:"owneruserid"`
-	CreationDate string   `json:"creationdate"`
-	Score        int      `json:"score"`
-	Title        string   `json:"title"`
-	Body         string   `json:"body"`
-	AnswerIds    []uint   `json:"answerids"`
-	Tags         []string `json:"tags"`
+	OwnerUserID  uint         `json:"owneruserid"`
+	CreationDate string       `json:"creationdate"`
+	Score        int          `json:"score"`
+	Title        string       `json:"title"`
+	BodyRef      string       `json:"bodyref"`
+	Answers      []AnswerJSON `json:"answers"`
+	Tags         []string     `json:"tags"`
 }
 
 type AnswerJSON struct {
 	OwnerUserID  uint   `json:"owneruserid"`
-	ParentID     uint   `json:"parentid"`
 	CreationDate string `json:"creationdate"`
 	Score        int    `json:"score"`
-	Body         string `json:"body"`
+	BodyRef      string `json:"bodyref"`
+}
+
+type BodyJSON struct {
+	Body string `json:"body"`
 }
 
 func openDBConnection() (*gocb.Cluster, error) {
@@ -144,8 +147,9 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Job) {
 			// Get a scope reference
 			scope := bucket.Scope("stack-exchange-scope")
 
-			// Get the question collection reference
-			questionCollection := scope.Collection("question-record-collection")
+			// Get collections reference
+			questionCollection := scope.Collection("question-with-answers-collection")
+			bodyCollection := scope.Collection("body-collection")
 
 			// Unmarshall question to JSON
 			input := []byte(job.RawQuestion)
@@ -154,55 +158,60 @@ func doTheJob(workerIndex int, counter int, db *gocb.Cluster, job Job) {
 				log.Fatalf("%v", err)
 			}
 
-			// Create question document key
-			questionKey := fmt.Sprintf("question::%d", rawQuestionJSON.ID)
+			// Process answers
+			answers := []AnswerJSON{}
+			for _, rawAnswerJSON := range rawQuestionJSON.RawAnswer {
+				// Create body document
+				body := BodyJSON{
+					Body: rawAnswerJSON.Body,
+				}
 
-			// Create question document value
-			answerIds := []uint{}
-			for _, rawAnswer := range rawQuestionJSON.RawAnswer {
-				answerIds = append(answerIds, rawAnswer.ID)
+				// Create body document key
+				bodyKey := fmt.Sprintf("body::answer::%d", rawAnswerJSON.ID)
+
+				// Insert body document
+				_, err = bodyCollection.Insert(bodyKey, body, nil)
+
+				answer := AnswerJSON{
+					OwnerUserID:  rawAnswerJSON.OwnerUserID,
+					CreationDate: rawAnswerJSON.CreationDate,
+					Score:        rawAnswerJSON.Score,
+					BodyRef:      bodyKey,
+				}
+
+				answers = append(answers, answer)
 			}
 
-			questionJSON := QuestionJSON{
+			// Create body document
+			body := BodyJSON{
+				Body: rawQuestionJSON.Body,
+			}
+
+			// Create body document key
+			bodyKey := fmt.Sprintf("body::question::%d", rawQuestionJSON.ID)
+
+			// Insert body document
+			_, err = bodyCollection.Insert(bodyKey, body, nil)
+
+			// Create question document
+			question := QuestionJSON{
 				OwnerUserID:  rawQuestionJSON.OwnerUserID,
 				CreationDate: rawQuestionJSON.CreationDate,
 				Score:        rawQuestionJSON.Score,
 				Title:        rawQuestionJSON.Title,
-				Body:         rawQuestionJSON.Body,
-				AnswerIds:    answerIds,
+				Answers:      answers,
 				Tags:         rawQuestionJSON.Tags,
+				BodyRef:      bodyKey,
 			}
 
+			// Create question document key
+			questionKey := fmt.Sprintf("question-with-answers::%d", rawQuestionJSON.ID)
+
 			// Insert question document
-			_, err = questionCollection.Insert(questionKey, questionJSON, nil)
+			_, err = questionCollection.Insert(questionKey, question, nil)
 			if err != nil {
 				log.Fatalf("%v", err)
 			}
-
-			// Get the answer collection reference
-			answerCollection := scope.Collection("answer-record-collection")
-
-			// For each answer, insert answer document
-			for _, rawAnswer := range rawQuestionJSON.RawAnswer {
-				// Create answer document key
-				answerKey := fmt.Sprintf("answer::%d", rawAnswer.ID)
-
-				// Create answer document value
-				answerJSON := AnswerJSON{
-					OwnerUserID:  rawAnswer.OwnerUserID,
-					ParentID:     rawAnswer.ParentID,
-					CreationDate: rawAnswer.CreationDate,
-					Score:        rawAnswer.Score,
-					Body:         rawAnswer.Body,
-				}
-
-				// Insert answer document
-				_, err = answerCollection.Insert(answerKey, answerJSON, nil)
-				if err != nil {
-					log.Fatalf("%v", err)
-				}
-			}
-
 		}(&outerError)
 
 		if outerError == nil {
